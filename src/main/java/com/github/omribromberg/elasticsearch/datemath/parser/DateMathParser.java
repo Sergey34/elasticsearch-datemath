@@ -12,9 +12,8 @@ import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Builder
 public class DateMathParser {
@@ -48,23 +47,64 @@ public class DateMathParser {
     }
 
     private ZonedDateTime parseMathExpression(String mathExpression, ZonedDateTime time) {
-        Matcher matcher = Pattern.compile("([-,+][0-9]+)([a-z])/?([a-z])?").matcher(mathExpression);
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException();
-        }
-        int num = Integer.parseInt(matcher.group(1));
-        ChronoUnit mathUnit = mathUnits.get(matcher.group(2).charAt(0));
-        ChronoUnit roundMathUnit = getRoundMathUnit(matcher);
-        time = roundMathUnit != null ? time.plus(num, mathUnit).truncatedTo(mathUnit) : time.plus(num, mathUnit);
-        return time;
-    }
+        for (int i = 0; i < mathExpression.length(); ) {
+            final int sign;
+            final boolean round;
 
-    private ChronoUnit getRoundMathUnit(Matcher matcher) {
-        String group = matcher.group(3);
-        if (group == null) {
-            return null;
+            char current = mathExpression.charAt(i++);
+
+            if (current == '/') {
+                round = true;
+                sign = 1;
+            } else {
+                round = false;
+                if (current == '+') {
+                    sign = 1;
+                } else if (current == '-') {
+                    sign = -1;
+                } else {
+                    throw new DateMathParseException(String.format("operator not supported for date math %s", mathExpression));
+                }
+            }
+
+            if (i >= mathExpression.length()) {
+                throw new DateMathParseException(String.format("truncated date math %s", mathExpression));
+            }
+
+            final int num;
+
+            if (!Character.isDigit(mathExpression.charAt(i))) {
+                num = 1;
+            } else {
+                int numFrom = i;
+
+                while (i < mathExpression.length() && Character.isDigit(mathExpression.charAt(i))) {
+                    i++;
+                }
+
+                if (i >= mathExpression.length()) {
+                    throw new DateMathParseException(String.format("truncated date math %s", mathExpression));
+                }
+                num = Integer.parseInt(mathExpression.substring(numFrom, i));
+
+            }
+
+            if (round) {
+                if (num != 1) {
+                    throw new DateMathParseException(String.format("rounding `/` can only be used on single unit types %s", mathExpression));
+                }
+            }
+
+            char unit = mathExpression.charAt(i++);
+            ChronoUnit mathUnit = mathUnits.get(unit);
+
+            if (Objects.isNull(mathUnit)) {
+                throw new DateMathParseException(String.format("unit %s not supported for date math %s", unit, mathExpression));
+            }
+
+            time = round ? time.truncatedTo(mathUnit) : time.plus(sign * num, mathUnit);
         }
-        return mathUnits.get(group.charAt(0));
+        return time;
     }
 
     private ZonedDateTime parseDateTimeExpression(String dateTimeExpression) {
