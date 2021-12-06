@@ -34,6 +34,20 @@ class DateMathParserTest {
     }
 
     @Test
+    public void now_minus_6m_plus_6y() {
+        DateMathParser dateMathParser = DateMathParser.builder()
+                .pattern("yyyy-MM-dd HH-ss")
+                .zone(ZoneId.of("America/New_York"))
+                .nowSupplier(() -> ZonedDateTime.parse("2011-10-05T14:48:00.000Z"))
+                .build();
+        ZonedDateTime zonedDateTime = dateMathParser.resolveExpression("now-6M+6y");
+        Assertions.assertThat(zonedDateTime.getMonthValue())
+                .isEqualTo(4);
+        Assertions.assertThat(zonedDateTime.getYear())
+                .isEqualTo(2017);
+    }
+
+    @Test
     public void now_minus_4d_slash_d() {
         DateMathParser dateMathParser = DateMathParser.builder()
                 .pattern("yyyy-MM-dd HH-ss")
