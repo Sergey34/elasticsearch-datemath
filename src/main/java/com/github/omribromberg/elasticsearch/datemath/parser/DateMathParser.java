@@ -56,25 +56,17 @@ public class DateMathParser {
                 sign = 1;
             } else {
                 round = false;
-                if (current == '+') {
-                    sign = 1;
-                } else if (current == '-') {
-                    sign = -1;
-                } else {
-                    throw new DateMathParseException(String.format("operator not supported for date math %s", mathExpression));
-                }
+                sign = getSign(mathExpression, current);
             }
             if (i >= mathExpression.length()) {
                 throw new DateMathParseException(String.format("truncated date math %s", mathExpression));
             }
-            final int num;
+            final long num;
             if (!Character.isDigit(mathExpression.charAt(i))) {
                 num = 1;
             } else {
                 int numFrom = i;
-                while (i < mathExpression.length() && Character.isDigit(mathExpression.charAt(i))) {
-                    i++;
-                }
+                i = getLastDigitChar(mathExpression, i);
                 if (i >= mathExpression.length()) {
                     throw new DateMathParseException(String.format("truncated date math %s", mathExpression));
                 }
@@ -91,6 +83,25 @@ public class DateMathParser {
             time = round ? time.truncatedTo(mathUnit) : time.plus(sign * num, mathUnit);
         }
         return time;
+    }
+
+    private int getLastDigitChar(String mathExpression, int i) {
+        while (i < mathExpression.length() && Character.isDigit(mathExpression.charAt(i))) {
+            i++;
+        }
+        return i;
+    }
+
+    private int getSign(String mathExpression, char current) {
+        final int sign;
+        if (current == '+') {
+            sign = 1;
+        } else if (current == '-') {
+            sign = -1;
+        } else {
+            throw new DateMathParseException(String.format("operator not supported for date math %s", mathExpression));
+        }
+        return sign;
     }
 
     private ZonedDateTime parseDateTimeExpression(String dateTimeExpression) {
