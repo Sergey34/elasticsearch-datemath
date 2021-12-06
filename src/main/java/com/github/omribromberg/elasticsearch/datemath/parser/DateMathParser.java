@@ -1,6 +1,9 @@
 package com.github.omribromberg.elasticsearch.datemath.parser;
 
+import lombok.Builder;
+
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
@@ -9,12 +12,13 @@ import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAccessor;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-
+@Builder
 public class DateMathParser {
-    private static final Map<Character, ChronoUnit> mathUnits = new HashMap() {{
+    private static final Map<Character, ChronoUnit> mathUnits = new HashMap<Character, ChronoUnit>() {{
         put('y', ChronoUnit.YEARS);
         put('M', ChronoUnit.MONTHS);
         put('w', ChronoUnit.WEEKS);
@@ -24,86 +28,43 @@ public class DateMathParser {
         put('m', ChronoUnit.MINUTES);
         put('s', ChronoUnit.SECONDS);
     }};
-    
-    private final String pattern;
-    private final ZoneId zone;
-    private final Supplier<ZonedDateTime> nowSupplier;
-    private final String nowPattern;
-    private final DateTimeFormatter formatter;
+    public static final String DEFAULT_PATTERN = "yyyy.MM.dd";
 
-    public DateMathParser(String pattern, ZoneId zone, Supplier<ZonedDateTime> nowSupplier, String nowPattern) {
-        this.pattern = pattern;
-        this.zone = zone;
-        this.nowSupplier = nowSupplier;
-        this.nowPattern = nowPattern;
-        formatter = DateTimeFormatter
-                .ofPattern(pattern)
-                .withZone(zone);
-    }
+    @Builder.Default
+    private String pattern = DEFAULT_PATTERN;
+    @Builder.Default
+    private ZoneId zone = ZoneOffset.UTC;
+    @Builder.Default
+    private Supplier<ZonedDateTime> nowSupplier = () -> ZonedDateTime.now(ZoneOffset.UTC);
+    @Builder.Default
+    private String nowPattern = "now";
+    @Builder.Default
+    private DateTimeFormatter formatter = DateTimeFormatter
+            .ofPattern(DEFAULT_PATTERN)
+            .withZone(ZoneOffset.UTC);
 
     public ZonedDateTime resolveExpression(String expression) {
         return expression.startsWith(nowPattern) ? resolveNowExpression(expression) : resolveDateTimeExpression(expression);
     }
 
     private ZonedDateTime parseMathExpression(String mathExpression, ZonedDateTime time) {
-        for (int i = 0; i < mathExpression.length(); ) {
-            final int sign;
-            final boolean round;
-
-            char current = mathExpression.charAt(i++);
-
-            if (current == '/') {
-                round = true;
-                sign = 1;
-            } else {
-                round = false;
-                if (current == '+') {
-                    sign = 1;
-                } else if (current == '-') {
-                    sign = -1;
-                } else {
-                    throw new DateMathParseException(String.format("operator not supported for date math %s", mathExpression));
-                }
-            }
-
-            if (i >= mathExpression.length()) {
-                throw new DateMathParseException(String.format("truncated date math %s", mathExpression));
-            }
-
-            final int num;
-
-            if (!Character.isDigit(mathExpression.charAt(i))) {
-                num = 1;
-            } else {
-                int numFrom = i;
-
-                while (i < mathExpression.length() && Character.isDigit(mathExpression.charAt(i))) {
-                    i++;
-                }
-
-                if (i >= mathExpression.length()) {
-                    throw new DateMathParseException(String.format("truncated date math %s", mathExpression));
-                }
-                num = Integer.parseInt(mathExpression.substring(numFrom, i));
-
-            }
-
-            if (round) {
-                if (num != 1) {
-                    throw new DateMathParseException(String.format("rounding `/` can only be used on single unit types %s", mathExpression));
-                }
-            }
-
-            char unit = mathExpression.charAt(i++);
-            ChronoUnit mathUnit = mathUnits.get(unit);
-
-            if (Objects.isNull(mathUnit)) {
-                throw new DateMathParseException(String.format("unit %s not supported for date math %s", unit, mathExpression));
-            }
-
-            time = round ? time.truncatedTo(mathUnit) : time.plus(sign * num, mathUnit);
+        Matcher matcher = Pattern.compile("([-,+][0-9]+)([a-z])/?([a-z])?").matcher(mathExpression);
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException();
         }
+        int num = Integer.parseInt(matcher.group(1));
+        ChronoUnit mathUnit = mathUnits.get(matcher.group(2).charAt(0));
+        ChronoUnit roundMathUnit = getRoundMathUnit(matcher);
+        time = roundMathUnit != null ? time.plus(num, mathUnit).truncatedTo(mathUnit) : time.plus(num, mathUnit);
         return time;
+    }
+
+    private ChronoUnit getRoundMathUnit(Matcher matcher) {
+        String group = matcher.group(3);
+        if (group == null) {
+            return null;
+        }
+        return mathUnits.get(group.charAt(0));
     }
 
     private ZonedDateTime parseDateTimeExpression(String dateTimeExpression) {
@@ -128,7 +89,7 @@ public class DateMathParser {
     }
 
     private ZonedDateTime resolveNowExpression(String expression) {
-        return parseMathExpression(expression.substring(nowPattern.length()), nowSupplier.get());
+        return parseMathExpression(expression.substring(nowPattern.length()).trim(), nowSupplier.get());
     }
 
     private ZonedDateTime getDateTimeWithDefaults(String dateTimeExpression) {
@@ -137,25 +98,25 @@ public class DateMathParser {
                 .appendPattern(pattern);
 
         if (!parsed.isSupported(ChronoField.YEAR)) {
-            builder = builder.parseDefaulting(ChronoField.YEAR, 1970);
+            builder.parseDefaulting(ChronoField.YEAR, 1970);
         }
         if (!parsed.isSupported(ChronoField.MONTH_OF_YEAR)) {
-            builder = builder.parseDefaulting(ChronoField.MONTH_OF_YEAR, 1);
+            builder.parseDefaulting(ChronoField.MONTH_OF_YEAR, 1);
         }
         if (!parsed.isSupported(ChronoField.DAY_OF_MONTH)) {
-            builder = builder.parseDefaulting(ChronoField.DAY_OF_MONTH, 1);
+            builder.parseDefaulting(ChronoField.DAY_OF_MONTH, 1);
         }
         if (!parsed.isSupported(ChronoField.HOUR_OF_DAY)) {
-            builder = builder.parseDefaulting(ChronoField.HOUR_OF_DAY, 0);
+            builder.parseDefaulting(ChronoField.HOUR_OF_DAY, 0);
         }
         if (!parsed.isSupported(ChronoField.MINUTE_OF_HOUR)) {
-            builder = builder.parseDefaulting(ChronoField.MINUTE_OF_HOUR, 0);
+            builder.parseDefaulting(ChronoField.MINUTE_OF_HOUR, 0);
         }
         if (!parsed.isSupported(ChronoField.INSTANT_SECONDS)) {
-            builder = builder.parseDefaulting(ChronoField.SECOND_OF_MINUTE, 0);
+            builder.parseDefaulting(ChronoField.SECOND_OF_MINUTE, 0);
         }
         if (!parsed.isSupported(ChronoField.MILLI_OF_SECOND)) {
-            builder = builder.parseDefaulting(ChronoField.MILLI_OF_SECOND, 0);
+            builder.parseDefaulting(ChronoField.MILLI_OF_SECOND, 0);
         }
 
         return ZonedDateTime.parse(dateTimeExpression, builder.toFormatter().withZone(zone));
